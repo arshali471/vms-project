@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  app:
+    build: ./
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      FLASK_ENV: development
+    env_file:
+      - '.env'
+
+  db:
+    image: mysql:8.0
+    command: --default-authentication-plugin=caching_sha2_password
+    restart: unless-stopped
+    container_name: mysql_db
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: password#1
+      MYSQL_DATABASE: motion_detection
+      MYSQL_USER: motion_detection
+      MYSQL_PASSWORD: motionDetection$1
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
