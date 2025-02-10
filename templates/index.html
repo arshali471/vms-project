@@ -1,6 +1,153 @@
 <html>
+<head>
+    <title>RTSP Multi Stream Viewer</title>
+    <script>
+        let streams = {}; // Track active streams
+
+        function startStream(streamId) {
+            if (!streams[streamId]) {
+                document.getElementById(`stream_${streamId}`).src = `/video_feed/${streamId}`;
+                streams[streamId] = true;
+                document.getElementById(`status_${streamId}`).innerText = "Streaming Started";
+            }
+        }
+
+        function stopStream(streamId) {
+            if (streams[streamId]) {
+                fetch(`/stop_stream/${streamId}`, { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === "success") {
+                            document.getElementById(`stream_${streamId}`).src = ""; // Stop the stream
+                            streams[streamId] = false;
+                            document.getElementById(`status_${streamId}`).innerText = "Streaming Stopped";
+                        } else {
+                            alert("Failed to stop stream: " + data.message);
+                        }
+                    })
+                    .catch(error => console.error("Error stopping stream:", error));
+            }
+        }
+
+        function openFullScreen(streamId) {
+            let imgElement = document.getElementById(`stream_${streamId}`);
+            if (imgElement.requestFullscreen) {
+                imgElement.requestFullscreen();
+            } else if (imgElement.mozRequestFullScreen) { // Firefox
+                imgElement.mozRequestFullScreen();
+            } else if (imgElement.webkitRequestFullscreen) { // Chrome, Safari, Opera
+                imgElement.webkitRequestFullscreen();
+            } else if (imgElement.msRequestFullscreen) { // IE/Edge
+                imgElement.msRequestFullscreen();
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+
+        .stream-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .stream-box {
+            border: 2px solid #000;
+            background: #fff;
+            padding: 15px;
+            text-align: center;
+            width: 45%;
+            min-width: 320px;
+            max-width: 600px;
+            box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        .stream-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .stream-status {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 10px;
+        }
+
+        .stream-img {
+            width: 100%;
+            height: 300px;
+            object-fit: contain;
+            background: #e0e0e0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .btn-container {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .btn {
+            padding: 8px 15px;
+            font-size: 14px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .btn-start {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .btn-stop {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .stream-box {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
 <body>
-    <h1>RTSP Live Stream</h1>
-    <img src="{{ url_for('video_feed', id=id) }}" alt="RTSP Stream" width="720" />
+    <h1>RTSP Multi Stream Viewer</h1>
+
+    <div class="stream-container">
+        {% if streams %}
+            {% for stream in streams %}
+            <div class="stream-box">
+                <div class="stream-title">Stream {{ stream.id }}</div>
+                <div class="stream-status" id="status_{{ stream.id }}">Stream is Off</div>
+                <img id="stream_{{ stream.id }}" class="stream-img" src="" alt="RTSP Stream {{ stream.id }}" onclick="openFullScreen('{{ stream.id }}')" />
+                <div class="btn-container">
+                    <button class="btn btn-start" onclick="startStream('{{ stream.id }}')">Start Stream</button>
+                    <button class="btn btn-stop" onclick="stopStream('{{ stream.id }}')">Stop Stream</button>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p>No RTSP streams available.</p>
+        {% endif %}
+    </div>
 </body>
 </html>

@@ -12,10 +12,6 @@ from modelSchema import SettingsSchema
 from model import Settings
 from database import db
 
-# RTSP Stream URL
-# RTSP_URL = "rtsp://admin:admin$123@122.160.111.249:554/cam/realmonitor?channel=11&subtype=1"
-# RTSP_URL = "/Users/mdarshadali/Downloads/manwithlaptop.mp4"
-
 # Background subtractor for motion detection
 fgbg = cv2.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=True)
 
@@ -66,26 +62,50 @@ def connect_to_stream(RTSP_URL):
     return cap
 
 
-# 🎥 Live Stream with Detection Functions
-# def generate_frames():
-#     cap = connect_to_stream()
+streaming_active = {}
 
-#     while True:
+# def generate_frames(rtsp_url, settings, stream_id):
+#     global streaming_active
+#     cap = connect_to_stream(rtsp_url)
+#     fps = 30  # Target FPS
+#     frame_time = 1.0 / fps  # Time per frame
+#     orig_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+
+#     streaming_active[stream_id] = True
+
+#     while streaming_active.get(stream_id, False):
+#         start_time = time.time()
+
 #         ret, frame = cap.read()
 #         if not ret:
 #             print("Reconnecting to RTSP stream...")
 #             cap.release()
-#             time.sleep(5)
-#             cap = connect_to_stream()
+#             time.sleep(1)
+#             cap = connect_to_stream(rtsp_url)
 #             continue
 
-#         # Apply detection algorithms
-#         frame = process_motion(frame)
-#         frame = detect_person_motion(frame)
-#         frame = detect_faces(frame)
-#         frame = detect_fire(frame)
+#         # Apply detection algorithms (keeping it lightweight for performance)
+
+#         if settings.normal_motion:
+#             frame = process_motion(frame)
+#         if settings.person_motion:
+#             frame = detect_person_motion(frame)
+#         if settings.faces:
+#             frame = detect_faces(frame)
+#         if settings.fire_detections:
+#             frame = detect_fire(frame)
+#         if settings.electronic_devices:
+#             frame = detect_electronic_devices(frame)
+#         if settings.pose:
+#             frame = detect_pose(frame)
+#         if settings.stopped_persons:
+#             frame = detect_stopped_after_walking(frame, people_boxes, orig_fps)
+
+#         # frame = detect_person_motion(frame)
+#         # frame = detect_faces(frame)
+#         # frame = detect_fire(frame)
+#         # frame = detect_electronic_devices(frame)
 #         # frame = detect_pose(frame)
-#         frame = detect_electronic_devices(frame)
 #         # frame = detect_stopped_after_walking(frame)
 
 #         # Encode frame for streaming
@@ -96,17 +116,25 @@ def connect_to_stream(RTSP_URL):
 #         yield (b'--frame\r\n'
 #                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
+#         # **Ensure 30 FPS by adjusting sleep time**
+#         elapsed_time = time.time() - start_time
+#         sleep_time = max(0, frame_time - elapsed_time)
+#         time.sleep(sleep_time)  # Sleep to maintain 30 FPS
+
 #     cap.release()
 
 
 
-def generate_frames(rtsp_url, settings):
+def generate_frames(rtsp_url, settings, stream_id):
+    global streaming_active
     cap = connect_to_stream(rtsp_url)
     fps = 30  # Target FPS
     frame_time = 1.0 / fps  # Time per frame
     orig_fps = cap.get(cv2.CAP_PROP_FPS) or 30
 
-    while True:
+    streaming_active[stream_id] = True
+
+    while streaming_active.get(stream_id, False):
         start_time = time.time()
 
         ret, frame = cap.read()
@@ -117,29 +145,35 @@ def generate_frames(rtsp_url, settings):
             cap = connect_to_stream(rtsp_url)
             continue
 
-        # Apply detection algorithms (keeping it lightweight for performance)
+        # Get current time
+        current_time = datetime.now().time()
 
-        if settings.normal_motion:
-            frame = process_motion(frame)
-        if settings.person_motion:
-            frame = detect_person_motion(frame)
-        if settings.faces:
-            frame = detect_faces(frame)
-        if settings.fire_detections:
-            frame = detect_fire(frame)
-        if settings.electronic_devices:
-            frame = detect_electronic_devices(frame)
-        if settings.pose:
-            frame = detect_pose(frame)
-        if settings.stopped_persons:
-            frame = detect_stopped_after_walking(frame, people_boxes, orig_fps)
-
-        # frame = detect_person_motion(frame)
-        # frame = detect_faces(frame)
-        # frame = detect_fire(frame)
-        # frame = detect_electronic_devices(frame)
-        # frame = detect_pose(frame)
-        # frame = detect_stopped_after_walking(frame)
+        # Check if algorithm should run
+        if settings.algorithm_status and settings.algorithm_start_time and settings.algorithm_end_time:
+            if settings.algorithm_start_time <= current_time <= settings.algorithm_end_time:
+                # Run detection algorithms only within the allowed time range
+                if settings.normal_motion:
+                    frame = process_motion(frame)
+                if settings.person_motion:
+                    frame = detect_person_motion(frame)
+                if settings.faces:
+                    frame = detect_faces(frame)
+                if settings.fire_detections:
+                    frame = detect_fire(frame)
+                if settings.electronic_devices:
+                    frame = detect_electronic_devices(frame)
+                if settings.pose:
+                    frame = detect_pose(frame)
+                if settings.stopped_persons:
+                    frame = detect_stopped_after_walking(frame, people_boxes, orig_fps)
+            else:
+                # Outside allowed time range, just stream the frame without processing
+                cv2.putText(frame, "Algorithm Paused (Outside Time Range)", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        else:
+            # Algorithm status is False or start/end time is not set
+            cv2.putText(frame, "Algorithm Disabled", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
         # Encode frame for streaming
         ret, buffer = cv2.imencode('.jpg', frame)
@@ -149,12 +183,15 @@ def generate_frames(rtsp_url, settings):
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
 
-        # **Ensure 30 FPS by adjusting sleep time**
+        # Ensure 30 FPS by adjusting sleep time
         elapsed_time = time.time() - start_time
         sleep_time = max(0, frame_time - elapsed_time)
         time.sleep(sleep_time)  # Sleep to maintain 30 FPS
 
     cap.release()
+
+
+    
 # 🚶 Normal Motion Detection
 def process_motion(frame):
     fg_mask = fgbg.apply(frame)
@@ -213,33 +250,6 @@ def detect_fire(frame):
     return frame
 
 
-# 📱 Electronic Device Detection
-# def detect_electronic_devices(frame):
-#     height, width, _ = frame.shape
-#     blob = cv2.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
-#     net.setInput(blob)
-
-#     electronic_classes = ["tv", "laptop", "cell phone", "keyboard", "mouse", "remote", "book"]
-
-#     try:
-#         outputs = net.forward(output_layers)
-#         for output in outputs:
-#             for detection in output:
-#                 scores = detection[5:]
-#                 class_id = np.argmax(scores)
-#                 confidence = scores[class_id]
-
-#                 if confidence > 0.5 and classes[class_id] in electronic_classes:
-#                     x, y, w, h = (int(detection[0] * width), int(detection[1] * height),
-#                                   int(detection[2] * width), int(detection[3] * height))
-#                     x, y = max(0, x - w // 2), max(0, y - h // 2)
-#                     cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 255, 0), 2)
-#                     cv2.putText(frame, f"{classes[class_id]} {confidence:.2f}",
-#                                 (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-#         return frame
-#     except Exception as e:
-#         print(f"Error in electronic detection: {e}")
-#         return frame
 def detect_electronic_devices(frame):
     """
     Optimized function to detect electronic devices using YOLO.
@@ -435,9 +445,28 @@ def video_feed(id):
     if not rtsp_url:
         return jsonify({"status": "error", "message": "RTSP URL is missing in settings"}), 400
 
-    return Response(generate_frames(rtsp_url, settings), mimetype='multipart/x-mixed-replace; boundary=frame')
+    stream_id = str(id)  # Use id as unique stream identifier
+    streaming_active[stream_id] = True
+
+    return Response(generate_frames(rtsp_url, settings, stream_id), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
-def index(id):
-    return render_template("index.html", id=id)
 
+def stop_stream(id):
+    """Stops the RTSP stream by setting the flag to False."""
+    stream_id = str(id)
+    if stream_id in streaming_active and streaming_active[stream_id]:
+        streaming_active[stream_id] = False
+        return jsonify({"status": "success", "message": f"Streaming stopped for id {id}"})
+    else:
+        return jsonify({"status": "error", "message": f"No active stream found for id {id}"}), 400
+
+
+def index():
+    # Fetch all RTSP streams from the database
+    streams = Settings.query.all()  # Make sure Settings contains `id` and `rtspUrl`
+    
+    if not streams:
+        print("⚠ No RTSP streams found in the database!")
+
+    return render_template("index.html", streams=streams)

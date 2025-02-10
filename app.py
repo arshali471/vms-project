@@ -15,6 +15,9 @@ import torch
 from torchvision import transforms
 from PIL import Image
 import warnings
+from model import CategoryEnum
+from modelSchema import UpdateAlgorithmTimingSchema
+from marshmallow import ValidationError
 
 
 
@@ -31,8 +34,8 @@ person_states = collections.defaultdict(lambda: {"positions": [], "last_moved": 
 # Directories for output
 output_dirs = ["normal_motion", "person_motion", "faces", "high_person_count", "pose", "fire_detections", "electronic_devices", "stopped_person", "motion_images"]
 
-for output_dir in output_dirs:
-    os.makedirs(output_dir, exist_ok=True)
+# for output_dir in output_dirs:
+#     os.makedirs(output_dir, exist_ok=True)
 
 # YOLO and face detection setup
 net = cv2.dnn.readNetFromDarknet("yolov4.cfg", "yolov4.weights")
@@ -1172,6 +1175,54 @@ def delete_all_files():
         return jsonify({'status': 'success', 'message': 'All files deleted'}), 200
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+def update_algorithm_timings_by_category():
+    """
+    Update all streams in a given category with new algorithm start & end times.
+    Expects a JSON payload with:
+    - category (string) -> "control_room", "exam_hall", "ground_area"
+    - algorithm_start_time (string) -> "HH:MM" (24-hour format)
+    - algorithm_end_time (string) -> "HH:MM" (24-hour format)
+    - algorithm_status (boolean) -> True/False
+    """
+
+    schema = UpdateAlgorithmTimingSchema()
+
+    try:
+        data = schema.load(request.json)  # Validate input JSON
+    except ValidationError as err:
+        return jsonify({"status": "error", "errors": err.messages}), 400
+
+    category = data.get('category')
+    start_time_str = data.get('algorithm_start_time')
+    end_time_str = data.get('algorithm_end_time')
+
+    # Validate category
+    if category not in [e.value for e in CategoryEnum]:
+        return jsonify({"status": "error", "message": "Invalid category"}), 400
+
+    # Validate time format
+    try:
+        algorithm_start_time = datetime.strptime(start_time_str, "%H:%M").time()
+        algorithm_end_time = datetime.strptime(end_time_str, "%H:%M").time()
+    except ValueError:
+        return jsonify({"status": "error", "message": "Invalid time format. Use HH:MM"}), 400
+
+    # Update all records with matching category
+    updated_rows = Settings.query.filter_by(category=category).update({
+        Settings.algorithm_start_time: algorithm_start_time,
+        Settings.algorithm_end_time: algorithm_end_time
+    })
+
+    db.session.commit()
+
+    if updated_rows:
+        return jsonify({"status": "success", "message": f"Updated {updated_rows} streams for category {category}"}), 200
+    else:
+        return jsonify({"status": "warning", "message": f"No streams found for category {category}"}), 404
+
+
 
 def api_test():
     data = request.get_json()

@@ -7,4 +7,4 @@ pip install flask opencv-python opencv-contrib-python numpy
 
 ```
 python app.py
-```# vms-project
+```
